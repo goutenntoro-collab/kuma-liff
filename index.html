@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>くまちゃんとおはなし</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    background: #f4f6f4; color: #222;
+    display: flex; flex-direction: column;
+  }
+  #kumaArea {
+    flex: 0 0 40vh;
+    display: flex; align-items: center; justify-content: center;
+    background: #e8f5e9;
+    position: relative;
+    overflow: hidden;
+  }
+  #kumaArea img {
+    max-height: 100%; max-width: 100%;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  #kumaArea img.show { opacity: 1; }
+  #kumaFallback {
+    position: absolute; font-size: 14px; color: #2e7d32;
+  }
+  #log {
+    flex: 1 1 auto; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .msg { max-width: 80%; padding: 8px 12px; border-radius: 14px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { align-self: flex-end; background: #2e7d32; color: #fff; }
+  .msg.kuma { align-self: flex-start; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  #inputBar {
+    flex: 0 0 auto; display: flex; gap: 8px; padding: 10px; background: #fff; border-top: 1px solid #ddd;
+  }
+  #speakBtn { flex: 0 0 auto; padding: 10px 14px; font-size: 14px; border: 1px solid #2e7d32; background: #fff; color: #2e7d32; border-radius: 20px; }
+  #speakBtn.listening { background: #2e7d32; color: #fff; }
+  #textInput { flex: 1 1 auto; padding: 10px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 20px; min-width: 0; }
+  #sendBtn { flex: 0 0 auto; padding: 10px 16px; font-size: 14px; background: #2e7d32; color: #fff; border: none; border-radius: 20px; }
+  #sendBtn:disabled { opacity: 0.5; }
+</style>
+</head>
+<body>
+<div id="kumaArea">
+  <span id="kumaFallback"></span>
+  <img id="kumaImg" alt="くまちゃん">
+</div>
+<div id="log"></div>
+<div id="inputBar">
+  <button id="speakBtn" style="display:none">話す</button>
+  <input id="textInput" type="text" placeholder="くまちゃんに話しかけてみよう">
+  <button id="sendBtn">送る</button>
+</div>
+
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LIFF疎通検証（捨てページ）</title>
+</head>
+<body>
+<h1>LIFF疎通・マイク動作の検証</h1>
+<p id="ua"></p>
+
+<p>
+  <button id="btnInit">① LIFF初期化</button>
+  <button id="btnProfile">② プロフィール取得</button>
+  <button id="btnToken">③ IDトークン取得</button>
+  <button id="btnMic">④ マイク許可</button>
+  <button id="btnSpeech">⑤ 音声認識</button>
+  <button id="btnSpeak">⑥ 読み上げ</button>
+</p>
+
+<pre id="out" style="white-space: pre-wrap; word-break: break-word; background:#eee; padding:8px;"></pre>
+
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+// 運用者が後で書き換える。LINE Developersで発行されたLIFF IDをここに入れる。
+const LIFF_ID = "";
+
+const out = document.getElementById("out");
+function log(label, msg) {
+  const time = new Date().toLocaleTimeString();
+  out.textContent += `[${time}] ${label}: ${msg}\n`;
+  out.scrollTop = out.scrollHeight;
+}
+function logErr(label, err) {
+  log(label, `エラー name=${err && err.name} message=${err && err.message}`);
+}
+
+document.getElementById("ua").textContent = "UA: " + navigator.userAgent;
+
+document.getElementById("btnInit").addEventListener("click", async () => {
+  try {
+    if (!LIFF_ID) {
+      log("LIFF初期化", "LIFF_IDが未設定です");
+      return;
+    }
+    await liff.init({ liffId: LIFF_ID });
+    log("LIFF初期化", "成功");
+    log("isInClient", String(liff.isInClient()));
+    log("getOS", String(liff.getOS()));
+    log("getLineVersion", String(liff.getLineVersion()));
+  } catch (err) {
+    logErr("LIFF初期化", err);
+  }
+});
+
+document.getElementById("btnProfile").addEventListener("click", async () => {
+  try {
+    const profile = await liff.getProfile();
+    log("プロフィール取得", `userId=${profile.userId} displayName=${profile.displayName}`);
+  } catch (err) {
+    logErr("プロフィール取得", err);
+  }
+});
+
+document.getElementById("btnToken").addEventListener("click", () => {
+  try {
+    const token = liff.getIDToken();
+    if (!token) {
+      log("IDトークン取得", "null（openidスコープ未設定の可能性）");
+      return;
+    }
+    log("IDトークン取得", token.slice(0, 30) + "...");
+  } catch (err) {
+    logErr("IDトークン取得", err);
+  }
+});
+
+document.getElementById("btnMic").addEventListener("click", async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    log("マイク許可", "成功");
+    stream.getTracks().forEach((t) => t.stop());
+  } catch (err) {
+    logErr("マイク許可", err);
+  }
+});
+
+document.getElementById("btnSpeech").addEventListener("click", () => {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    log("音声認識", "このブラウザは非対応（SpeechRecognition未定義）");
+    return;
+  }
+  try {
+    const recognition = new SpeechRecognition();
+    recognition.lang = "ja-JP";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        log("音声認識", "無反応（10秒経過。onresult/onerrorどちらも来なかった）");
+      }
+    }, 10000);
+
+    recognition.onresult = (e) => {
+      settled = true;
+      clearTimeout(timer);
+      const text = e.results[0][0].transcript;
+      log("音声認識(onresult)", text);
+    };
+    recognition.onerror = (e) => {
+      settled = true;
+      clearTimeout(timer);
+      log("音声認識(onerror)", e.error);
+    };
+    recognition.onend = () => {
+      clearTimeout(timer);
+      log("音声認識(onend)", "終了");
+    };
+
+    recognition.start();
+    log("音声認識", "開始。話しかけてください");
+  } catch (err) {
+    logErr("音声認識", err);
+  }
+});
+
+document.getElementById("btnSpeak").addEventListener("click", () => {
+  try {
+    if (!("speechSynthesis" in window)) {
+      log("読み上げ", "このブラウザは非対応（speechSynthesis未定義）");
+      return;
+    }
+    const utter = new SpeechSynthesisUtterance("こんにちは。ぼくはくまちゃんだよ。");
+    utter.lang = "ja-JP";
+    utter.onerror = (e) => log("読み上げ(onerror)", e.error);
+    utter.onend = () => log("読み上げ(onend)", "終了");
+    speechSynthesis.speak(utter);
+    log("読み上げ", "開始");
+  } catch (err) {
+    logErr("読み上げ", err);
+  }
+});
+</script>
+</body>
+</html>
