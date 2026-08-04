@@ -1,8 +1,8 @@
-// くまちゃんLIFF会話ページのロジック(TASK-010)。
-// 会話判定・要約は一切ここでやらない。Workers API(/liff)に投げて返答をそのまま出すだけ。
+// くまちゃんLIFF会話ページのロジック。
+// 会話判定・要約は一切ここでやらない。GASウェブアプリに投げて返答をそのまま出すだけ。
 
 const LIFF_ID = "2010967619-qjKBKYsy";
-const WORKERS_URL = "https://farmandlab-manufacturing-bot.farmandlab.workers.dev/liff";
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwWImNJWxlJHzxwgbVut-0GxYT32OtbH8vsRWKyIYpBotodA_nTdd4a0GV-EMjOKLUp/exec";
 
 // ---- KumaView: 画像切り替えをここに閉じ込める。3Dに差し替えるときはここだけ入れ替える ----
 const KumaView = (() => {
@@ -96,7 +96,7 @@ function speak(text) {
   }
 }
 
-// ---- Workers APIとの通信 ----
+// ---- GASウェブアプリとの通信 ----
 const FETCH_TIMEOUT_MS = 20000;
 let isSending = false; // 文字送信/音声送信のどちらからも多重送信させないためのフラグ
 
@@ -106,6 +106,12 @@ async function sendToKuma(text) {
   showThinking();
   sendBtn.disabled = true;
   try {
+    if (!GAS_URL) {
+      addLogMessage("kuma", "うまく届かなかったみたい。");
+      KumaView.setState("idle");
+      return;
+    }
+
     const idToken = liff.getIDToken();
     if (!idToken) {
       liff.login();
@@ -116,9 +122,9 @@ async function sendToKuma(text) {
     const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let res;
     try {
-      res = await fetch(WORKERS_URL, {
+      res = await fetch(GAS_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ type: "liff_message", idToken, text }),
         signal: controller.signal,
       });
@@ -142,7 +148,7 @@ async function sendToKuma(text) {
     addLogMessage("kuma", "うまく届かなかったみたい。");
     KumaView.setState("idle");
   } catch (err) {
-    // 通信失敗・タイムアウト時は TASK-009 の LIFF_ALLOWED_ORIGIN 設定を確認
+    // 通信失敗・タイムアウト時はGASウェブアプリのURL・デプロイ設定を確認
     addLogMessage("kuma", "うまく届かなかったみたい。");
     KumaView.setState("idle");
   } finally {

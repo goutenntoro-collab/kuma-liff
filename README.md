@@ -20,13 +20,13 @@
 # liff/index.html — くまちゃん会話ページ（本番）
 
 LINEのトーク画面から開く、くまちゃんとの会話ページ。文字入力が主、音声は対応環境でのみ使える。
-返答は Cloudflare Workers の `/liff` エンドポイント（TASK-009）から取得する。
+返答は GASウェブアプリ（`doPost` に追加した `liff_message` 分岐）から取得する。
 
 ## 設定手順
 
 1. `liff/app.js` 先頭の2つの定数を書き換える。
    - `LIFF_ID`: LINE Developersコンソールで発行されたLIFFアプリのID
-   - `WORKERS_URL`: Workersの `/liff` エンドポイントの完全なURL（例: `https://farmandlab-manufacturing-bot.<account>.workers.dev/liff`）
-2. Workers側 (`wrangler.toml` の `[vars]`) の `LIFF_ALLOWED_ORIGIN` に、このページを公開するオリジン（例: `https://xxx.github.io`）を設定し、`LIFF_ENABLED` を `"true"` にする。`LIFF_CHANNEL_ID` は `wrangler secret put LIFF_CHANNEL_ID` でLINE LoginチャネルのチャネルIDを設定する。
+   - `GAS_URL`: GASウェブアプリのURL（後述の手順で発行される `https://script.google.com/macros/s/.../exec` 形式のURL）
+2. GASエディタで対象プロジェクトを開き、「デプロイ」→「新しいデプロイ」→種類「ウェブアプリ」を選び、「アクセスできるユーザー」を「全員」にしてデプロイする。発行されたURLを `GAS_URL` に設定する。`Config.LIFF_ENABLED` が `true` であること、`Config.LIFF_CHANNEL_ID` にLINE LoginチャネルのチャネルIDが設定されていることを確認する。
 3. `liff/assets/` に `kuma_idle.png` / `kuma_listen.png` / `kuma_think.png` / `kuma_talk.png` を配置する（無くてもページは壊れず、名前だけ表示される）。
 4. GitHub Pagesなどに `liff/` をpushして公開し、LINEのトーク画面から `https://liff.line.me/{LIFF_ID}` を開いて動作確認する。
