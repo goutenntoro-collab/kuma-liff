@@ -2,7 +2,7 @@
 // 会話判定・要約は一切ここでやらない。Workers API(/liff)に投げて返答をそのまま出すだけ。
 
 const LIFF_ID = "2010967619-qjKBKYsy";
-const WORKERS_URL = ""; // 運用者が後で書き換える(例: https://xxx.workers.dev/liff)
+const WORKERS_URL = "https://farmandlab-manufacturing-bot.farmandlab.workers.dev/liff";
 
 // ---- KumaView: 画像切り替えをここに閉じ込める。3Dに差し替えるときはここだけ入れ替える ----
 const KumaView = (() => {
