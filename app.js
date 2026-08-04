@@ -18,7 +18,7 @@ const KumaView = (() => {
 
   img.addEventListener("error", () => {
     img.classList.remove("show");
-    fallback.textContent = current ? `くまちゃん(${current})` : "くまちゃん";
+    fallback.textContent = "くまちゃん";
   });
   img.addEventListener("load", () => {
     fallback.textContent = "";
@@ -33,7 +33,7 @@ const KumaView = (() => {
   }
 
   setState("idle");
-  return { setState };
+  return { setState, getState: () => current };
 })();
 
 // ---- 会話ログ ----
@@ -70,44 +70,71 @@ function warmUpSpeech() {
     speechSynthesis.speak(new SpeechSynthesisUtterance(""));
   } catch (_e) {}
 }
+// talk状態のときだけidleに戻す(戻す前に別の操作でlisten/thinkに移っていたら邪魔しない)
+function backToIdleIfStillTalking() {
+  if (KumaView.getState() === "talk") KumaView.setState("idle");
+}
+
+// 読み上げが終わったら(失敗しても/非対応でも)talk表示のまま固定されないようにidleへ戻す
 function speak(text) {
-  if (!canSpeak) return;
+  if (!canSpeak) {
+    setTimeout(backToIdleIfStillTalking, 3000);
+    return;
+  }
   try {
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = "ja-JP";
     utter.rate = 0.85;
+    utter.onend = backToIdleIfStillTalking;
+    utter.onerror = backToIdleIfStillTalking;
     speechSynthesis.speak(utter);
+    // 環境によってはonend/onerrorが来ないことがあるので保険で戻す
+    setTimeout(backToIdleIfStillTalking, 3000);
   } catch (_e) {
     // 読み上げが失敗しても会話は継続する
+    setTimeout(backToIdleIfStillTalking, 3000);
   }
 }
 
 // ---- Workers APIとの通信 ----
-async function sendToKuma(text, isRetryAfterLogin) {
+const FETCH_TIMEOUT_MS = 20000;
+let isSending = false; // 文字送信/音声送信のどちらからも多重送信させないためのフラグ
+
+async function sendToKuma(text) {
+  if (isSending) return;
+  isSending = true;
   showThinking();
   sendBtn.disabled = true;
   try {
-    let idToken = liff.getIDToken();
+    const idToken = liff.getIDToken();
     if (!idToken) {
       liff.login();
       return;
     }
-    const res = await fetch(WORKERS_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "liff_message", idToken, text }),
-    });
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(WORKERS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "liff_message", idToken, text }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
     const data = await res.json().catch(() => null);
-    hideThinking();
 
     if (data && data.ok) {
-      const replyEl = addLogMessage("kuma", data.reply || "");
+      addLogMessage("kuma", data.reply || "");
       KumaView.setState("talk");
       speak(data.reply || "");
       return;
     }
 
-    if (data && data.code === "auth" && !isRetryAfterLogin) {
+    if (data && data.code === "auth") {
       liff.login();
       return;
     }
@@ -115,12 +142,13 @@ async function sendToKuma(text, isRetryAfterLogin) {
     addLogMessage("kuma", "うまく届かなかったみたい。");
     KumaView.setState("idle");
   } catch (err) {
-    // 通信失敗時は TASK-009 の LIFF_ALLOWED_ORIGIN 設定を確認
-    hideThinking();
+    // 通信失敗・タイムアウト時は TASK-009 の LIFF_ALLOWED_ORIGIN 設定を確認
     addLogMessage("kuma", "うまく届かなかったみたい。");
     KumaView.setState("idle");
   } finally {
+    hideThinking();
     sendBtn.disabled = false;
+    isSending = false;
   }
 }
 
@@ -129,6 +157,7 @@ const textInput = document.getElementById("textInput");
 const sendBtn = document.getElementById("sendBtn");
 
 function submitText() {
+  if (isSending) return;
   const text = textInput.value.trim();
   if (!text) return;
   warmUpSpeech();
@@ -139,7 +168,8 @@ function submitText() {
 
 sendBtn.addEventListener("click", submitText);
 textInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") submitText();
+  // IMEの変換確定Enterでは送信しない(isComposing非対応ブラウザ向けにkeyCode 229も見る)
+  if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) submitText();
 });
 
 // ---- 音声(対応環境のみ)。機能検出ではなく実行結果でボタンの残し方を決める ----
@@ -163,35 +193,43 @@ function startListening() {
   recognition.continuous = false;
 
   let settled = false;
-  const timer = setTimeout(() => {
-    if (!settled) {
-      settled = true;
-      speakBtn.classList.remove("listening");
-      KumaView.setState("idle");
-      fallbackToTextOnly();
-    }
-  }, 5000);
+  let listenTimer = null;
+  function giveUpListening() {
+    if (settled) return;
+    settled = true;
+    speakBtn.classList.remove("listening");
+    KumaView.setState("idle");
+  }
+
+  // マイク許可ダイアログ待ちを巻き込まないよう、聞き取りが実際に始まる(onstart)まで
+  // 5秒タイマーは開始しない。onstart自体が来ない端末向けに30秒の緩い上限だけ別途持つ。
+  // タイムアウトは1回無反応だっただけなのでidleに戻すのみ(ボタンは消さない)
+  const startCap = setTimeout(giveUpListening, 30000);
+  recognition.onstart = () => {
+    listenTimer = setTimeout(giveUpListening, 5000);
+  };
 
   recognition.onresult = (e) => {
     settled = true;
-    clearTimeout(timer);
+    clearTimeout(startCap);
+    clearTimeout(listenTimer);
     const text = e.results[0][0].transcript;
-    if (text && text.trim()) {
+    if (text && text.trim() && !isSending) {
       addLogMessage("user", text);
       sendToKuma(text);
     }
   };
   recognition.onerror = (e) => {
-    settled = true;
-    clearTimeout(timer);
-    speakBtn.classList.remove("listening");
-    KumaView.setState("idle");
+    clearTimeout(startCap);
+    clearTimeout(listenTimer);
+    giveUpListening();
     if (["service-not-allowed", "not-allowed", "audio-capture"].includes(e.error)) {
       fallbackToTextOnly();
     }
   };
   recognition.onend = () => {
-    clearTimeout(timer);
+    clearTimeout(startCap);
+    clearTimeout(listenTimer);
     speakBtn.classList.remove("listening");
   };
 
