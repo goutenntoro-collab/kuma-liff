@@ -249,12 +249,24 @@ if (SpeechRecognitionCtor) {
   speakBtn.addEventListener("click", startListening);
 }
 
+// ---- ブラウザで開く ----
+// index.htmlが古いキャッシュのときにここで落ちるとページ全体が動かなくなるので存在確認する
+const openBrowserBtn = document.getElementById("openBrowserBtn");
+if (openBrowserBtn) {
+  openBrowserBtn.addEventListener("click", () => {
+    liff.openWindow({ url: location.href, external: true });
+  });
+}
+
 // ---- 初期化 ----
 async function init() {
   try {
     await liff.init({ liffId: LIFF_ID });
     if (!liff.isLoggedIn()) {
       liff.login();
+    }
+    if (openBrowserBtn && liff.isInClient()) {
+      openBrowserBtn.style.display = "";
     }
   } catch (err) {
     addLogMessage("kuma", "うまく届かなかったみたい。");
