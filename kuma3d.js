@@ -24,9 +24,11 @@ const MOTION = {
   talk:   { bobAmp: 0.014, bobSpeed: 2.6, headPitch: -0.03, headYaw: 0.00, sway: 0.010 }
 };
 
-const CAMERA_FOV = 22;
-const CAMERA_DISTANCE = 1.15;
-const HEAD_FRAMING_OFFSET = -0.06;
+const CAMERA_FOV = 30;
+// 上下にどれだけ余白を取るか(0.1 = 1割)。距離はモデルの実寸から毎回計算する
+const FRAMING_PADDING = 0.12;
+// 胸のボーンが取れなかったときに、頭からどれだけ下までを写すか(頭の高さの何倍か)
+const FALLBACK_BUST_RATIO = 1.6;
 const LERP_RATE = 4.0;
 
 export async function createKuma3D(options) {
@@ -66,6 +68,8 @@ export async function createKuma3D(options) {
   const headBone = vrm.humanoid ? vrm.humanoid.getNormalizedBoneNode('head') : null;
   const baseY = vrm.scene.position.y;
 
+  // 頭のてっぺんから胸までが画面に収まる位置にカメラを置く。
+  // 固定の距離だとモデルの大きさが変わったときに合わなくなるので、実寸から計算する。
   function frameCamera() {
     const headWorld = new THREE.Vector3();
     if (headBone) {
@@ -73,9 +77,30 @@ export async function createKuma3D(options) {
     } else {
       headWorld.set(0, 1.3, 0);
     }
-    const targetY = headWorld.y + HEAD_FRAMING_OFFSET;
-    camera.position.set(0, targetY, CAMERA_DISTANCE);
-    camera.lookAt(0, targetY, 0);
+
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const top = box.max.y;
+
+    let bottom;
+    const bustBone =
+      (vrm.humanoid && vrm.humanoid.getNormalizedBoneNode('chest')) ||
+      (vrm.humanoid && vrm.humanoid.getNormalizedBoneNode('upperChest')) ||
+      (vrm.humanoid && vrm.humanoid.getNormalizedBoneNode('spine'));
+    if (bustBone) {
+      const bustWorld = new THREE.Vector3();
+      bustBone.getWorldPosition(bustWorld);
+      bottom = bustWorld.y;
+    } else {
+      bottom = headWorld.y - (top - headWorld.y) * FALLBACK_BUST_RATIO;
+    }
+
+    const span = Math.max(0.01, (top - bottom) * (1 + FRAMING_PADDING));
+    const centerY = (top + bottom) / 2;
+    const halfFov = THREE.MathUtils.degToRad(CAMERA_FOV) / 2;
+    const distance = (span / 2) / Math.tan(halfFov);
+
+    camera.position.set(0, centerY, distance);
+    camera.lookAt(0, centerY, 0);
   }
 
   function resize() {
@@ -84,6 +109,7 @@ export async function createKuma3D(options) {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    frameCamera();
   }
 
   let state = 'idle';
