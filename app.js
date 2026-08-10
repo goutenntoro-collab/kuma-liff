@@ -4,36 +4,79 @@
 const LIFF_ID = "2010967619-qjKBKYsy";
 const GAS_URL = "https://script.google.com/macros/s/AKfycbwWImNJWxlJHzxwgbVut-0GxYT32OtbH8vsRWKyIYpBotodA_nTdd4a0GV-EMjOKLUp/exec";
 
-// ---- KumaView: 画像切り替えをここに閉じ込める。3Dに差し替えるときはここだけ入れ替える ----
+const MODEL_URL = "assets/kuma.vrm";
+const STILL_URL = "assets/kuma_still.png";
+
+// ---- KumaView: 表示の切り替えをここに閉じ込める ----
+// LINE内ブラウザ → 静止画1枚だけ(3Dの容量を一切落とさない)
+// 外部ブラウザ   → 3Dモデル(kuma3d.js を動的に読み込む)
 const KumaView = (() => {
   const img = document.getElementById("kumaImg");
+  const canvas = document.getElementById("kumaCanvas");
   const fallback = document.getElementById("kumaFallback");
-  const FILES = {
-    idle: "assets/kuma_idle.png",
-    listen: "assets/kuma_listen.png",
-    think: "assets/kuma_think.png",
-    talk: "assets/kuma_talk.png",
-  };
-  let current = null;
+  const loading = document.getElementById("kumaLoading");
+  const loadingText = document.getElementById("kumaLoadingText");
+  const loadingFill = document.getElementById("kumaLoadingFill");
+
+  let impl = null;      // 3Dが立ち上がったらここに入る
+  let state = "idle";   // 3Dが来る前の操作もここで覚えておく
 
   img.addEventListener("error", () => {
     img.classList.remove("show");
-    fallback.textContent = "くまちゃん";
+    if (!impl) fallback.textContent = "くまちゃん";
   });
   img.addEventListener("load", () => {
     fallback.textContent = "";
     img.classList.add("show");
   });
 
-  function setState(state) {
-    if (!FILES[state]) return;
-    current = state;
-    img.classList.remove("show");
-    img.src = FILES[state];
+  function showStill() {
+    img.src = STILL_URL;
   }
 
-  setState("idle");
-  return { setState, getState: () => current };
+  function setProgress(ratio) {
+    const pct = Math.round(ratio * 100);
+    loadingText.textContent = "くまちゃんを読み込み中 " + pct + "%";
+    loadingFill.style.width = pct + "%";
+  }
+
+  // 3Dの読み込みに失敗しても会話は続ける。静止画にそのまま落とす
+  async function mount3D() {
+    loading.classList.add("show");
+    setProgress(0);
+    try {
+      const mod = await import("./kuma3d.js");
+      impl = await mod.createKuma3D({
+        canvas: canvas,
+        modelUrl: MODEL_URL,
+        onProgress: setProgress,
+      });
+      impl.setState(state);
+      img.classList.remove("show");
+      canvas.classList.add("show");
+      fallback.textContent = "";
+    } catch (err) {
+      showStill();
+    } finally {
+      loading.classList.remove("show");
+    }
+  }
+
+  function setState(next) {
+    state = next;
+    if (impl) impl.setState(next);
+  }
+
+  return {
+    setState,
+    getState: () => state,
+    mount(use3D) {
+      if (use3D) return mount3D();
+      showStill();
+      return Promise.resolve();
+    },
+    snapshot: () => (impl ? impl.snapshot() : null),
+  };
 })();
 
 // ---- 会話ログ ----
@@ -46,6 +89,38 @@ function addLogMessage(role, text) {
   logEl.scrollTop = logEl.scrollHeight;
   return div;
 }
+
+// ---- くまちゃんの返事を1文字ずつ出す ----
+// このモデルには口のモーフが無いので口パクはしない。
+// 「ゆっくり話す」(01_CHARACTER.md)は文字の出方で表す。画面をタップすると最後まで飛ぶ。
+const TYPE_SPEED_MS = 45;
+let skipTyping = false;
+
+function typeOutMessage(text) {
+  const div = addLogMessage("kuma", "");
+  skipTyping = false;
+  return new Promise((resolve) => {
+    let i = 0;
+    function step() {
+      if (skipTyping) {
+        div.textContent = text;
+        logEl.scrollTop = logEl.scrollHeight;
+        resolve();
+        return;
+      }
+      div.textContent = text.slice(0, ++i);
+      logEl.scrollTop = logEl.scrollHeight;
+      if (i >= text.length) {
+        resolve();
+        return;
+      }
+      setTimeout(step, TYPE_SPEED_MS);
+    }
+    step();
+  });
+}
+
+logEl.addEventListener("click", () => { skipTyping = true; });
 
 // ---- 送信中の「…」表示 ----
 let thinkingEl = null;
@@ -75,10 +150,18 @@ function backToIdleIfStillTalking() {
   if (KumaView.getState() === "talk") KumaView.setState("idle");
 }
 
+// 保険のタイマーは文字数に合わせる。固定値だと長い返事の途中で動きが止まる
+const SPEECH_FALLBACK_BASE_MS = 1500;
+const SPEECH_FALLBACK_PER_CHAR_MS = 180;
+function speechFallbackMs(text) {
+  return SPEECH_FALLBACK_BASE_MS + (text || "").length * SPEECH_FALLBACK_PER_CHAR_MS;
+}
+
 // 読み上げが終わったら(失敗しても/非対応でも)talk表示のまま固定されないようにidleへ戻す
 function speak(text) {
+  const fallbackMs = speechFallbackMs(text);
   if (!canSpeak) {
-    setTimeout(backToIdleIfStillTalking, 3000);
+    setTimeout(backToIdleIfStillTalking, fallbackMs);
     return;
   }
   try {
@@ -89,10 +172,10 @@ function speak(text) {
     utter.onerror = backToIdleIfStillTalking;
     speechSynthesis.speak(utter);
     // 環境によってはonend/onerrorが来ないことがあるので保険で戻す
-    setTimeout(backToIdleIfStillTalking, 3000);
+    setTimeout(backToIdleIfStillTalking, fallbackMs);
   } catch (_e) {
     // 読み上げが失敗しても会話は継続する
-    setTimeout(backToIdleIfStillTalking, 3000);
+    setTimeout(backToIdleIfStillTalking, fallbackMs);
   }
 }
 
@@ -134,9 +217,11 @@ async function sendToKuma(text) {
     const data = await res.json().catch(() => null);
 
     if (data && data.ok) {
-      addLogMessage("kuma", data.reply || "");
+      const reply = data.reply || "";
+      hideThinking();
       KumaView.setState("talk");
-      speak(data.reply || "");
+      speak(reply);
+      await typeOutMessage(reply);
       return;
     }
 
@@ -264,12 +349,17 @@ async function init() {
     await liff.init({ liffId: LIFF_ID });
     if (!liff.isLoggedIn()) {
       liff.login();
+      return;
     }
-    if (openBrowserBtn && liff.isInClient()) {
+    // LINE内ブラウザは読み上げ(speechSynthesis)が動かず3Dも重い。静止画だけにする。
+    const inClient = liff.isInClient();
+    if (openBrowserBtn && inClient) {
       openBrowserBtn.style.display = "";
     }
+    await KumaView.mount(!inClient);
   } catch (err) {
     addLogMessage("kuma", "うまく届かなかったみたい。");
+    KumaView.mount(false);
   }
 }
 init();
