@@ -210,7 +210,9 @@ function clearLoginRetry() {
   } catch (_e) {}
 }
 
-function retryLoginOnce(reason) {
+// forceFresh: liff.login() はログイン済みだとIDトークンを更新しない。
+// 期限切れトークンで弾かれている場合、logoutしてからでないと何度やっても同じトークンになる。
+function retryLoginOnce(reason, forceFresh) {
   const previous = readLoginRetry();
   if (previous) {
     addLogMessage(
@@ -220,6 +222,11 @@ function retryLoginOnce(reason) {
     return false;
   }
   writeLoginRetry({ reason: reason });
+  if (forceFresh) {
+    try {
+      liff.logout();
+    } catch (_e) {}
+  }
   liff.login();
   return true;
 }
@@ -268,7 +275,8 @@ async function sendToKuma(text) {
     }
 
     if (data && data.code === "auth") {
-      retryLoginOnce("IDトークンの検証に失敗");
+      // 期限切れの可能性が高いので、ログアウトしてトークンを取り直す
+      retryLoginOnce("IDトークンの検証に失敗", true);
       return;
     }
 
@@ -401,12 +409,14 @@ async function init() {
       addLogMessage("kuma", "（ログインし直したよ。理由: " + previousRetry.reason + "）");
     }
 
-    // LINE内ブラウザは読み上げ(speechSynthesis)が動かず3Dも重い。静止画だけにする。
-    const inClient = liff.isInClient();
-    if (openBrowserBtn && inClient) {
+    // 3Dを読むのは「声が出る環境」だけにする。
+    // liff.isInClient() は当てにならない(LINEのアプリ内ブラウザでURLを直接開くと false になる)。
+    // 読み上げが使えないなら3Dを読む意味が薄いので、実際の機能の有無で判定する。
+    const use3D = canSpeak;
+    if (openBrowserBtn && !use3D) {
       openBrowserBtn.style.display = "";
     }
-    await KumaView.mount(!inClient);
+    await KumaView.mount(use3D);
   } catch (err) {
     addLogMessage("kuma", "起動に失敗したみたい。（" + ((err && err.message) || "原因不明") + "）");
     KumaView.mount(false);
