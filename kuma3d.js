@@ -181,6 +181,13 @@ export async function createKuma3D(options) {
   resize();
   frameCamera();
   window.addEventListener('resize', resize);
+  // 表示直後は canvas の実寸が確定していないことがある。
+  // window の resize だけに頼ると、キーボードを開くまで描画されないことがあるため実寸を監視する。
+  var observer = null;
+  if (typeof ResizeObserver !== 'undefined') {
+    observer = new ResizeObserver(resize);
+    observer.observe(canvas);
+  }
   tick();
 
   return {
@@ -194,6 +201,9 @@ export async function createKuma3D(options) {
     dispose: function () {
       running = false;
       window.removeEventListener('resize', resize);
+      if (observer) {
+        observer.disconnect();
+      }
       VRMUtils.deepDispose(vrm.scene);
       renderer.dispose();
     }

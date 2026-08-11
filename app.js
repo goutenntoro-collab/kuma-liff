@@ -44,6 +44,10 @@ const KumaView = (() => {
   async function mount3D() {
     loading.classList.add("show");
     setProgress(0);
+    // canvasは先に表示しておく。display:noneのままだと幅も高さも0で初期化され、
+    // 画面リサイズが起きるまで何も描画されない。
+    img.classList.remove("show");
+    canvas.classList.add("show");
     try {
       const mod = await import("./kuma3d.js");
       impl = await mod.createKuma3D({
@@ -52,10 +56,10 @@ const KumaView = (() => {
         onProgress: setProgress,
       });
       impl.setState(state);
-      img.classList.remove("show");
-      canvas.classList.add("show");
       fallback.textContent = "";
     } catch (err) {
+      canvas.classList.remove("show");
+      addLogMessage("kuma", "3Dの読み込みに失敗したみたい。" + (err && err.message ? "（" + err.message + "）" : ""));
       showStill();
     } finally {
       loading.classList.remove("show");
@@ -183,6 +187,19 @@ function speak(text) {
 const FETCH_TIMEOUT_MS = 20000;
 let isSending = false; // 文字送信/音声送信のどちらからも多重送信させないためのフラグ
 
+// ログインのやり直しは1回だけ。無条件に liff.login() を呼ぶと、
+// 認証が通らない限り送信のたびにログインへ飛ばされて会話が始められない。
+let loginRetried = false;
+function retryLoginOnce(reason) {
+  if (loginRetried) {
+    addLogMessage("kuma", "ログインがうまくいかないみたい。（" + reason + "）");
+    return false;
+  }
+  loginRetried = true;
+  liff.login();
+  return true;
+}
+
 async function sendToKuma(text) {
   if (isSending) return;
   isSending = true;
@@ -197,7 +214,7 @@ async function sendToKuma(text) {
 
     const idToken = liff.getIDToken();
     if (!idToken) {
-      liff.login();
+      retryLoginOnce("IDトークンが取れない");
       return;
     }
 
@@ -226,15 +243,17 @@ async function sendToKuma(text) {
     }
 
     if (data && data.code === "auth") {
-      liff.login();
+      retryLoginOnce("IDトークンの検証に失敗");
       return;
     }
 
-    addLogMessage("kuma", "うまく届かなかったみたい。");
+    // 原因が分からないと直せないので、返ってきたcodeとmessageをそのまま出す
+    const detail = data ? (data.code || "") + " " + (data.message || "") : "応答が読めない";
+    addLogMessage("kuma", "うまく届かなかったみたい。（" + detail.trim() + "）");
     KumaView.setState("idle");
   } catch (err) {
     // 通信失敗・タイムアウト時はGASウェブアプリのURL・デプロイ設定を確認
-    addLogMessage("kuma", "うまく届かなかったみたい。");
+    addLogMessage("kuma", "うまく届かなかったみたい。（" + (err && err.name === "AbortError" ? "時間切れ" : (err && err.message) || "通信失敗") + "）");
     KumaView.setState("idle");
   } finally {
     hideThinking();
@@ -339,7 +358,9 @@ if (SpeechRecognitionCtor) {
 const openBrowserBtn = document.getElementById("openBrowserBtn");
 if (openBrowserBtn) {
   openBrowserBtn.addEventListener("click", () => {
-    liff.openWindow({ url: location.href, external: true });
+    // location.href には liff.state などの一時パラメータが付いていることがある。
+    // それごと外部ブラウザへ渡すと、あちらでの初期化・ログインがおかしくなるので落とす。
+    liff.openWindow({ url: location.origin + location.pathname, external: true });
   });
 }
 
@@ -348,7 +369,7 @@ async function init() {
   try {
     await liff.init({ liffId: LIFF_ID });
     if (!liff.isLoggedIn()) {
-      liff.login();
+      retryLoginOnce("未ログイン");
       return;
     }
     // LINE内ブラウザは読み上げ(speechSynthesis)が動かず3Dも重い。静止画だけにする。
@@ -358,7 +379,7 @@ async function init() {
     }
     await KumaView.mount(!inClient);
   } catch (err) {
-    addLogMessage("kuma", "うまく届かなかったみたい。");
+    addLogMessage("kuma", "起動に失敗したみたい。（" + ((err && err.message) || "原因不明") + "）");
     KumaView.mount(false);
   }
 }
