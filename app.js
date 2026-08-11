@@ -187,15 +187,39 @@ function speak(text) {
 const FETCH_TIMEOUT_MS = 20000;
 let isSending = false; // 文字送信/音声送信のどちらからも多重送信させないためのフラグ
 
-// ログインのやり直しは1回だけ。無条件に liff.login() を呼ぶと、
-// 認証が通らない限り送信のたびにログインへ飛ばされて会話が始められない。
-let loginRetried = false;
+// ログインのやり直しは1回だけ。
+// liff.login() はページを再読み込みするので、ただの変数では覚えておけない。
+// sessionStorage に残して、戻ってきた後も判定できるようにする。
+const LOGIN_RETRY_KEY = "kuma_login_retry";
+
+function readLoginRetry() {
+  try {
+    return JSON.parse(sessionStorage.getItem(LOGIN_RETRY_KEY) || "null");
+  } catch (_e) {
+    return null;
+  }
+}
+function writeLoginRetry(value) {
+  try {
+    sessionStorage.setItem(LOGIN_RETRY_KEY, JSON.stringify(value));
+  } catch (_e) {}
+}
+function clearLoginRetry() {
+  try {
+    sessionStorage.removeItem(LOGIN_RETRY_KEY);
+  } catch (_e) {}
+}
+
 function retryLoginOnce(reason) {
-  if (loginRetried) {
-    addLogMessage("kuma", "ログインがうまくいかないみたい。（" + reason + "）");
+  const previous = readLoginRetry();
+  if (previous) {
+    addLogMessage(
+      "kuma",
+      "ログインし直しても直らなかったよ。（1回目: " + previous.reason + " / 2回目: " + reason + "）"
+    );
     return false;
   }
-  loginRetried = true;
+  writeLoginRetry({ reason: reason });
   liff.login();
   return true;
 }
@@ -235,6 +259,7 @@ async function sendToKuma(text) {
 
     if (data && data.ok) {
       const reply = data.reply || "";
+      clearLoginRetry(); // 会話が成立したのでログインの再試行記録を捨てる
       hideThinking();
       KumaView.setState("talk");
       speak(reply);
@@ -358,9 +383,7 @@ if (SpeechRecognitionCtor) {
 const openBrowserBtn = document.getElementById("openBrowserBtn");
 if (openBrowserBtn) {
   openBrowserBtn.addEventListener("click", () => {
-    // location.href には liff.state などの一時パラメータが付いていることがある。
-    // それごと外部ブラウザへ渡すと、あちらでの初期化・ログインがおかしくなるので落とす。
-    liff.openWindow({ url: location.origin + location.pathname, external: true });
+    liff.openWindow({ url: location.href, external: true });
   });
 }
 
@@ -372,6 +395,12 @@ async function init() {
       retryLoginOnce("未ログイン");
       return;
     }
+    // 直前にログインし直していたら、その理由を出す。原因の切り分けに使う。
+    const previousRetry = readLoginRetry();
+    if (previousRetry) {
+      addLogMessage("kuma", "（ログインし直したよ。理由: " + previousRetry.reason + "）");
+    }
+
     // LINE内ブラウザは読み上げ(speechSynthesis)が動かず3Dも重い。静止画だけにする。
     const inClient = liff.isInClient();
     if (openBrowserBtn && inClient) {
