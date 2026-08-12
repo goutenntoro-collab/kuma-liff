@@ -1,0 +1,13 @@
+{
+  "name": "kuma-liff",
+  "displayName": "くまちゃん LIFFページ",
+  "family": "",
+  "account": "goutenntoro@gmail.com",
+  "claspUser": "",
+  "scriptId": "",
+  "repo": "kuma-liff",
+  "runtime": "GitHub Pages（静的サイト）",
+  "services": ["LINE Login (LIFF)", "GitHub Pages", "Google Apps Script ウェブアプリ（kumachan）"],
+  "status": "active",
+  "role": "LINEのトーク画面から開く、くまちゃんとの会話ページ。文字入力が主で音声は対応環境のみ。返答は kumachan のGASウェブアプリ（doPost の liff_message 分岐）から取得する"
+}
