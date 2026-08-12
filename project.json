@@ -1,6 +1,6 @@
 {
   "name": "kuma-liff",
-  "displayName": "くまちゃん LIFFページ",
+  "displayName": "くまちゃん LIFFページ（公開用ミラー）",
   "family": "",
   "account": "goutenntoro@gmail.com",
   "claspUser": "",
@@ -9,5 +9,5 @@
   "runtime": "GitHub Pages（静的サイト）",
   "services": ["LINE Login (LIFF)", "GitHub Pages", "Google Apps Script ウェブアプリ（kumachan）"],
   "status": "active",
-  "role": "LINEのトーク画面から開く、くまちゃんとの会話ページ。文字入力が主で音声は対応環境のみ。返答は kumachan のGASウェブアプリ（doPost の liff_message 分岐）から取得する"
+  "role": "kumachan の LIFF ページの公開用ミラー。正本は kumachan/liff/（Private）。LIFF は LINE がブラウザで読むため公開が必須で、本体を Private に保つために切り出してある。ここを直接編集しないこと。直すのは正本側"
 }
